@@ -1,0 +1,6 @@
+{
+    "_comment": "Applied by bin/composer-sync.php for this target, only to packages your composer.json already requires. Constraints found to block the target PHP (verified by composer resolution). PRs welcome.",
+    "require": {
+        "dompdf/dompdf": "^3.1"
+    }
+}
