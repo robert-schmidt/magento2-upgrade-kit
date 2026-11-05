@@ -116,7 +116,7 @@ foreach (array_unique(array_merge(array_keys($prefs), array_keys($plugins))) as 
 }
 function findClassFile(string $root, array $paths, string $class): ?string
 {
-    // app/code/<Vendor>/<Module>/... = PSR-0 "" on app/code; lib/<Vendor> and vendor-ing via composer psr-4 are tried by the caller
+    // app/code/<Vendor>/<Module>/... = PSR-0 "" on app/code; lib/<Vendor> and composer psr-4 dirs are tried by the caller
     foreach ($paths as $p) {
         $f = "$root/$p/" . str_replace('\\', '/', $class) . '.php';
         if (is_file($f)) return $f;

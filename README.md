@@ -223,7 +223,7 @@ install on PHP 8.5, and `^3.1` can.
 
 For each file it writes `*.upstream.diff` and a `*.merged` candidate with conflict markers, to `reports/<step>-forks/`.
 
-**How `vendor-patch.sh` works.** For abandoned packages (for example `microsoft/azure-storage-*`) it runs the safe fixes
+**How `vendor-patch.sh` works.** For abandoned third-party packages (an old cloud SDK nobody releases for PHP 8.4+, say) it runs the safe fixes
 on a copy, lints the result with the target PHP, and writes `patches/composer/<pkg>-php8x.patch`. It also prints the
 `extra.patches` entry for [cweagans/composer-patches](https://github.com/cweagans/composer-patches).
 
