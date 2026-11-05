@@ -80,7 +80,9 @@ if (is_file($baseJson)) {
             if (!$f->isFile()) continue;
             $relSrc = ltrim(substr($f->getPathname(), strlen("$root/vendor_orig/magento/magento2-base/")), '/');
             $relDest = $dest . substr($relSrc, strlen($src));
+            // committed copy if this is a git checkout, else the working file (a container volume is not a checkout)
             $head = shell_exec("$git show HEAD:./" . escapeshellarg($relDest) . ' 2>/dev/null');
+            if (($head === null || $head === '') && is_file("$root/$relDest")) $head = file_get_contents("$root/$relDest");
             if ($head === null || $head === '' || $head === file_get_contents($f->getPathname())) continue; // not tracked or not customized
             $lines[] = merge($relDest, $head, $f->getPathname(), "$root/vendor/magento/magento2-base/$relSrc", $out)
                 . "  (marshalled from magento2-base: composer install with magento-force=override re-deploys vendor's copy over your edit)";

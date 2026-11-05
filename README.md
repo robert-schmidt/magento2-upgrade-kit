@@ -36,9 +36,9 @@ PHPCompatibility, composer, git merge) wherever those already solve the problem.
 
 | Version | PHP | MySQL | Notes |
 |---|---|---|---|
-| 2.4.7-p10 | 8.2, 8.3 | none listed | MySQL 8.0 reached EOL on 2026-04-30. 2.4.7 never supported MySQL 8.4; Adobe recommends MariaDB for 2.4.7. |
-| 2.4.8-p5 | 8.3, **8.4** | **8.4** | No PHP 8.5: root `composer.json` has `php: ~8.2.0\|\|~8.3.0\|\|~8.4.0` |
-| 2.4.9 | **8.5** (8.4 "for upgrade purposes only") | 8.4 | First version with PHP 8.5; PHP 8.2 and 8.3 dropped |
+| 2.4.7-p10 | 8.2, 8.3 | none listed (p9: 8.0) | MySQL 8.0 reached EOL on 2026-04-30. 2.4.7 never supported MySQL 8.4; Adobe recommends MariaDB for 2.4.7. |
+| 2.4.8-p5 | 8.3, **8.4** | **8.4** (release notes: 8.0 "still supported, upgrade recommended") | No PHP 8.5: root `composer.json` has `php: ~8.2.0\|\|~8.3.0\|\|~8.4.0` |
+| 2.4.9 | **8.5** (8.4 "for upgrade purposes only") | 8.4 | First version with PHP 8.5; PHP 8.2 and 8.3 dropped. **2.4.9-p1 is announced for January 2027** (magento/magento2#41066) and carries the PHP 8.5 null-offset fixes and the cache fallback fix (#41213); until then only isolated security patch ZIPs exist. |
 
 Neither the PHP 8.5 jump nor MySQL 8.4 is possible on 2.4.7, and 2.4.8 cannot run PHP 8.5. That gives three releases:
 
@@ -48,8 +48,13 @@ Neither the PHP 8.5 jump nor MySQL 8.4 is possible on 2.4.7, and 2.4.8 cannot ru
 | **R2** | 2.4.8-pN | 8.4 | **8.4** | Composer bump, Monolog 3, Symfony Mailer, the PHP 8.4 runtime and MySQL 8.4, all in one maintenance window. |
 | **R3** | 2.4.9 | 8.5 | 8.4 | Composer bump, Symfony 7.4, native MVC, Symfony Cache, the PHP 8.5 runtime. |
 
-MySQL 9.x isn't supported by any version. Redis no longer appears in Adobe's requirements matrix (Valkey 8/9 does). Redis
-keeps working at the protocol level, but it is formally unsupported.
+MySQL 9.x isn't supported by any version. Redis no longer appears in Adobe's requirements matrix (Valkey 8/9 does): the
+cache-options page says Redis "is not supported for 2.4.9, or patch releases later than 2.4.7-p9 and 2.4.8-p4". Redis
+keeps working at the protocol level (Valkey 8 is a Redis 7.2 fork and the clients are the same), but it is formally
+unsupported. **2.4.9 GA routes every cache backend through symfony/cache** (`App\Cache\Frontend\Factory` has no legacy
+path any more); only the aliases `file`, `redis`, `valkey` and `symfony_l2` are known, the Redis DSN is always
+`redis://` (no TLS, no cluster), and anything else silently becomes a filesystem cache (#41213). A custom backend class
+therefore has to be ported to a `SymfonyAdapterProvider` preference/plugin, or wait for 2.4.9-p1.
 
 ## 2. The one Magento fact that makes this hard
 
@@ -80,10 +85,13 @@ export CUSTOM_PATHS="app/code app/design"      # plus any other dirs with your P
 ```
 
 **Requirements on the machine that runs it:**
-- bash, git, and PHP ≥ 8.1 at any version (it only runs the tools).
+- bash and PHP ≥ 8.1 at any version (it only runs the tools). git is optional: inside a container whose
+  `/var/www/html` is a volume rather than a checkout, the clean-tree gate is skipped with a warning and you review the
+  diff on the host.
 - composer ≥ 2.9.3, with `auth.json` for repo.magento.com and any private repos you use.
-- docker. Lint runs inside `php:8.x-cli` images so it uses the *exact* target PHP. Alternatively, set `PHP_BIN` to a
-  local binary of that version.
+- PHP binaries for the versions you lint with. `bin/lint.sh` looks for `PHP_BIN_85`-style variables, then `php8.5`
+  on `PATH` (the ondrej packages install `/usr/bin/php8.5` next to `php8.3`), then `PHP_BIN`, and only then falls back
+  to docker `php:8.x-cli` images.
 
 The kit doesn't need to live inside your project, and it doesn't need a running Magento or a database.
 
@@ -147,7 +155,10 @@ tree is clean. It then:
 4. `bin/infra.php` moves Dockerfile, CI and scripts from `php8.3` to `php8.4` and unpins the composer version.
 5. Rector's `php84` set, plus the Monolog 3 handler signature autofix.
 6. `bin/core-forks.php` 3-way merges your copies of core files onto the new vendor versions.
-7. Lint on 8.4 of your code **and** of the packages you added on top of Magento.
+7. `bin/preferences.php` lists every core class your `di.xml` files override (`<preference>`) or intercept
+   (`<plugin>`) whose upstream file changed, and flags changed constructors, changed signatures of methods you
+   override, and plugin targets that no longer exist.
+8. Lint on 8.4 of your code **and** of the packages you added on top of Magento.
 
 Then run `bin/magento setup:di:compile` in a PHP 8.4 container with the new vendor. Signature mismatches against the new
 core show up there. Next, run `setup:upgrade` against a copy of production on MySQL 8.4 (§7).
@@ -179,6 +190,7 @@ All of these work on their own, not just from the steps.
 | `bin/config-php.php <root> [--dry-run]` | Prunes and completes the module list in `app/etc/config.php` |
 | `bin/infra.php <repo> <8.4\|8.5> <2.4.8\|2.4.9> [--dry-run]` | Rewrites PHP version references in build and CI files, plus `env.php` |
 | `bin/core-forks.php <root> <out>` | 3-way merge of core-file customizations onto the new vendor (see below) |
+| `bin/preferences.php <root> <out>` | Preferences/plugins on core classes vs the new vendor: `CTOR` (constructor changed, your preference has its own), `SIG` (overridden/hooked method changed), `GONE` (method or class removed), with the upstream diff per class. Needs `vendor_orig/`. |
 | `bin/vendor-patch.sh <vendor/pkg>...` | Builds a composer-patches patch with the PHP 8.4/8.5 fixes for a vendor package you can't upgrade |
 | `bin/tools.sh [uph]` | Installs Rector 2.6 and PHPCompatibility 10 into `.tools/`. With `uph`, also installs convenient/upgrade-patch-helper. |
 | `sql/preflight-mysql84.sql` | Read-only DB checks before MySQL 8.4 and 2.4.8 (§7) |
@@ -238,6 +250,7 @@ mysql --force --table -h <host> -u <user> -p <db> < sql/preflight-mysql84.sql
 | non-`trg_*` triggers | Custom triggers interfere with mview |
 | utf8mb3 tables | 2.4.8 defaults to utf8mb4, so custom tables joined to core ones can hit "Illegal mix of collations" |
 | server variables and auth plugins | `log_bin_trust_function_creators=1`, `explicit_defaults_for_timestamp=1`, `mysql_native_password` users |
+| `SET SESSION restrict_fk_on_non_standard_key=OFF` (8.4 only) | Proves the app user can switch it off per connection. Verified on `mysql:8.4`: a user with only `ALL ON db.*` can. If the managed service does not expose the global parameter (Azure does not document it), put the statement in `env.php` → `db/connection/*/initStatements`, which Magento runs on every connection. |
 
 **Procedure** (self-hosted, Azure Database for MySQL Flexible Server, or AWS RDS/Aurora):
 1. Restore production to a new server (PITR or snapshot) and run the preflight on it.
@@ -250,7 +263,12 @@ mysql --force --table -h <host> -u <user> -p <db> < sql/preflight-mysql84.sql
    removed in 9.0, and PHP's mysqlnd supports `caching_sha2_password` over TLS.
 4. Major-upgrade the copy and time it. Deploy the R2 build against it: `setup:upgrade`, reindex, smoke test.
    - Managed services: a major upgrade is **irreversible**, so rollback means restoring a backup.
-   - Azure's portal pre-check doesn't cover 8.0 → 8.4; use MySQL Shell `util.checkForServerUpgrade()`.
+   - Azure Database for MySQL Flexible Server: 8.4 is GA (8.4.9 as of Nov 2026), in-place 8.0 → 8.4 is
+     `az mysql flexible-server upgrade --version 8.4` (replicas first, HA supported, not zero-downtime, Burstable tier is
+     temporarily scaled to General Purpose). Standard support for 8.0 ends **2027-01-31**, then auto-billed Extended
+     Support until 2029-05-31. `mysql_native_password` stays enabled on Azure 8.4. Terraform: `azurerm` ≥ 4.55.0 accepts
+     `version = "8.4"` on `azurerm_mysql_flexible_server` and applies it as an in-place PATCH, not a replacement.
+     Microsoft strongly recommends MySQL Shell `util.checkForServerUpgrade()` before the portal Validate step.
 5. Production window:
    1. Enable maintenance mode.
    2. Stop crons and consumers.
@@ -303,6 +321,8 @@ the reports first.
 - [ ] PHPUnit 12 for your unit tests: attributes instead of annotations.
 - [ ] GraphQL now limits aliases (10) and query length (1 MB). Raise them if your headless or PWA clients need more.
 - [ ] Admin: `admin/security/minimum_password_length`. New Relic now uses NerdGraph (new credentials needed).
+- [ ] A custom cache backend class (Redis Cluster, Sentinel wrappers, ...) is bypassed on 2.4.9 GA: `infra.php` prints
+  a `WARN` for every `'backend'` value that is not `file|redis|valkey|symfony_l2`. Port it or wait for 2.4.9-p1.
 - [ ] After deploying:
   - `var/cache/symfony` stays empty, which shows the cache really is in Redis/Valkey.
   - DB SSL works (`env.php` `driver_options`).

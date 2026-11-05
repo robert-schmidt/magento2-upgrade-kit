@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Lint custom code with a given PHP version; keeps only deprecations/errors (compile-time ones).
 #   bin/lint.sh <php-version e.g. 8.3|8.4|8.5> [out-file]
-# Uses $PHP_BIN if set (must BE that version), otherwise docker image php:<ver>-cli.
+# Binary resolution, first hit wins: $PHP_BIN_<ver> (e.g. PHP_BIN_85=/usr/bin/php8.5), php<ver> on PATH (ondrej
+# packages install /usr/bin/php8.5 next to 8.3), $PHP_BIN (must BE that version), else docker image php:<ver>-cli.
 # One php process per file (a compile fatal must not hide the rest), run in parallel.
 set -euo pipefail
 source "$(dirname "$0")/../kit.env"
@@ -15,8 +16,13 @@ SCRIPT='find "$@" -type f \( -name "*.php" -o -name "*.phtml" \) -not -path "*/T
   | grep -E "^(PHP )?(Deprecated|Fatal error|Parse error|Warning):" | sed -E "s/^PHP //" || true'
 
 EXISTING=(); for p in $CUSTOM_PATHS; do if [[ -e $p ]]; then EXISTING+=("$p"); fi; done
-if [[ -n "${PHP_BIN:-}" ]]; then
-  PHPX="$PHP_BIN" bash -c "$SCRIPT" _ "${EXISTING[@]}"
+vervar="PHP_BIN_${VER//./}"
+BIN="${!vervar:-}"
+[[ -z "$BIN" ]] && BIN="$(command -v "php$VER" 2>/dev/null || true)"
+[[ -z "$BIN" && -n "${PHP_BIN:-}" ]] && BIN="$PHP_BIN"
+if [[ -n "$BIN" ]]; then
+  "$BIN" -r 'exit(str_starts_with(PHP_VERSION, $argv[1]) ? 0 : 1);' "$VER" || { echo "$BIN is not PHP $VER" >&2; exit 1; }
+  PHPX="$BIN" bash -c "$SCRIPT" _ "${EXISTING[@]}"
 else
   docker run --rm -v "$PWD:/app" -w /app -e PHPX=php "php:${VER}-cli" bash -c "$SCRIPT" _ "${EXISTING[@]}"
 fi | sort -u > "$OUT"

@@ -5,12 +5,18 @@ KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$KIT/kit.env"
 export MAGENTO_ROOT CUSTOM_PATHS INFRA_PATHS REPORT_DIR TOOLS_DIR M248_VERSION M249_VERSION
 cd "$MAGENTO_ROOT"
-REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel)}"
+# git is optional: inside a container /var/www/html is often a volume, not a checkout. Diffs are then reviewed
+# on the host (bind-mounted dirs) and the clean-tree gate is skipped with a warning.
+HAVE_GIT=0; git rev-parse --show-toplevel >/dev/null 2>&1 && HAVE_GIT=1
+REPO_ROOT="${REPO_ROOT:-$([[ $HAVE_GIT == 1 ]] && git rev-parse --show-toplevel || dirname "$MAGENTO_ROOT")}"
 COMPOSER_BIN="${COMPOSER_BIN:-composer}"
 mkdir -p "$REPORT_DIR"
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
-need_clean() { git diff --quiet && git diff --cached --quiet || { echo "working tree not clean: commit first, each step must be one reviewable diff" >&2; exit 1; }; }
+need_clean() {
+  [[ $HAVE_GIT == 1 ]] || { echo "WARN: $MAGENTO_ROOT is not a git checkout; cannot verify a clean tree. Commit on the host before running a step." >&2; return 0; }
+  git diff --quiet && git diff --cached --quiet || { echo "working tree not clean: commit first, each step must be one reviewable diff" >&2; exit 1; }
+}
 paths() { for p in $CUSTOM_PATHS; do if [[ -e $p ]]; then printf "%s " "$p"; fi; done; }
 meta_version() { php -r '$c=json_decode(file_get_contents("composer.json"),true); echo $c["require"]["magento/product-enterprise-edition"] ?? $c["require"]["magento/product-community-edition"] ?? "";'; }
 meta_name() { php -r '$c=json_decode(file_get_contents("composer.json"),true); echo isset($c["require"]["magento/product-enterprise-edition"]) ? "magento/product-enterprise-edition" : "magento/product-community-edition";'; }
@@ -26,6 +32,7 @@ project_vendor_dirs() {
 
 # keep vendor_orig out of git without touching .gitignore
 exclude_vendor_orig() {
+  [[ $HAVE_GIT == 1 ]] || return 0
   local ex; ex="$(git rev-parse --git-path info/exclude)"
   local rel; rel="$(git rev-parse --show-prefix)vendor_orig/"
   grep -qxF "/$rel" "$ex" 2>/dev/null || echo "/$rel" >> "$ex"

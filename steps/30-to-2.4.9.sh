@@ -28,6 +28,9 @@ sed -n '/==== summary/,$p' "$REPORT_DIR/30-scan-m249.txt"
 say "core forks + customized core files vs new vendor"
 php "$KIT/bin/core-forks.php" . "$REPORT_DIR/30-forks" || true
 
+say "di.xml preferences/plugins on core classes vs new vendor"
+CUSTOM_PATHS="$P" php "$KIT/bin/preferences.php" . "$REPORT_DIR/30-preferences" || true
+
 say "lint on PHP 8.5 (custom code + project-only vendor packages)"
 CUSTOM_PATHS="$P $(project_vendor_dirs)" "$KIT/bin/lint.sh" 8.5 "$REPORT_DIR/30-lint-8.5.txt"
 php "$KIT/bin/lint-fix.php" "$REPORT_DIR/30-lint-8.5.txt" "$MAGENTO_ROOT"

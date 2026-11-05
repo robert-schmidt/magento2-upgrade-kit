@@ -71,5 +71,17 @@ foreach ($files as $f) {
     }
     if ($code !== $orig) { $changed++; if (!$dry) file_put_contents($f, $code); }
 }
+if ($mage === '2.4.9') {
+    // 2.4.9 GA routes EVERY backend through symfony/cache; only file|redis|valkey|symfony_l2 are known. Any other
+    // value (a custom class, e.g. a Redis-cluster backend) silently becomes a filesystem cache (magento/magento2#41213).
+    foreach ($files as $f) {
+        if ($kind($f) !== 'env') continue;
+        if (preg_match_all("/['\"]backend['\"]\s*=>\s*['\"]([^'\"]+)['\"]/", file_get_contents($f), $m)) {
+            foreach (array_unique($m[1]) as $b) if (!in_array(strtolower($b), ['file', 'redis', 'valkey', 'symfony_l2'], true)) {
+                echo "WARN 2.4.9 cache backend '$b' in " . substr($f, strlen($repo) + 1) . ": not a known alias -> falls back to var/cache/symfony files. Port it to a SymfonyAdapterProvider plugin/preference or patch #41213.\n";
+            }
+        }
+    }
+}
 echo "\nfiles " . ($dry ? 'that would change' : 'changed') . ": $changed\n";
 echo "Not automated (check by hand): PECL extensions built from source for PHP $php, managed DB server parameters, CI config outside this repo.\n";

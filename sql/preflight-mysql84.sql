@@ -60,3 +60,9 @@ SELECT '8 info-vars-84' AS chk, @@restrict_fk_on_non_standard_key AS restrict_fk
 -- 9. INFO: auth plugin of the Magento DB user (mysql_native_password is disabled by default on 8.4, removed in 9.0).
 --    Needs SELECT on mysql.user; on Azure run as the admin user.
 SELECT '9 info-auth-plugin' AS chk, user, host, plugin FROM mysql.user WHERE user NOT LIKE 'mysql.%' AND user NOT LIKE 'azure_%';
+
+-- 10. 8.4 only: can THIS user switch the FK restriction off per session? If this works, Magento can run it from
+--     env.php 'initStatements' (e.g. "SET NAMES utf8; SET SESSION restrict_fk_on_non_standard_key=OFF;") even when the
+--     managed service does not expose the global parameter. Verified on mysql:8.4: no extra privilege needed.
+SET SESSION restrict_fk_on_non_standard_key = OFF;
+SELECT '10 session-restrict-fk-off-works' AS chk, @@session.restrict_fk_on_non_standard_key AS now_0_means_ok;
